@@ -121,6 +121,14 @@ export async function withLspClient<T>(
   // Fall back to file's directory if no root patterns match
   const root = findServerProjectRoot(absPath, server) ?? dirname(absPath);
 
+  log('[lsp] withLspClient: selected server', {
+    filePath: absPath,
+    extension: ext,
+    server: server.id,
+    command: server.command.join(' '),
+    root,
+  });
+
   log('[lsp] withLspClient: acquiring client', {
     filePath: absPath,
     server: server.id,

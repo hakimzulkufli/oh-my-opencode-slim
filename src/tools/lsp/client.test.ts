@@ -34,6 +34,7 @@ mock.module('bun', () => ({
 }));
 
 import {
+  getDiagnosticsCapabilitySummary,
   getWorkspaceConfiguration,
   LSP_TIMEOUTS,
   LSPClient,
@@ -487,6 +488,10 @@ describe('LSPClient initialize', () => {
     await client.initialize();
 
     expect((client as any).supportsPullDiagnostics).toBe(true);
+    expect((client as any).diagnosticProvider).toEqual({
+      interFileDependencies: false,
+      workspaceDiagnostics: false,
+    });
   });
 
   test('returns null for unknown workspace configuration sections', () => {
@@ -497,5 +502,49 @@ describe('LSPClient initialize', () => {
         {},
       ]),
     ).toEqual([null, { validate: { enable: true } }, null]);
+  });
+
+  test('summarizes pull-only diagnostics capabilities', () => {
+    expect(
+      getDiagnosticsCapabilitySummary({
+        diagnosticProvider: {
+          interFileDependencies: true,
+          workspaceDiagnostics: true,
+        },
+      }),
+    ).toEqual({
+      availableModes: ['pull', 'pull/full', 'pull/unchanged', 'workspace-pull'],
+      preferredMode: 'pull',
+      inferredTransport: 'pull',
+      pull: true,
+      pushObserved: false,
+      pullResultTracking: true,
+      workspaceDiagnostics: true,
+      interFileDependencies: true,
+      workspaceConfiguration: false,
+    });
+  });
+
+  test('summarizes hybrid diagnostics capabilities when push is observed', () => {
+    expect(
+      getDiagnosticsCapabilitySummary({
+        diagnosticProvider: {
+          interFileDependencies: false,
+          workspaceDiagnostics: false,
+        },
+        publishDiagnosticsObserved: true,
+        workspaceConfigurationRequested: true,
+      }),
+    ).toEqual({
+      availableModes: ['pull', 'pull/full', 'pull/unchanged', 'push'],
+      preferredMode: 'pull',
+      inferredTransport: 'hybrid',
+      pull: true,
+      pushObserved: true,
+      pullResultTracking: true,
+      workspaceDiagnostics: false,
+      interFileDependencies: false,
+      workspaceConfiguration: true,
+    });
   });
 });

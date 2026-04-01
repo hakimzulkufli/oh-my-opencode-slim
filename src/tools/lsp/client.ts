@@ -33,6 +33,59 @@ export const LSP_TIMEOUTS = {
   diagnosticSettleDelay: DIAGNOSTIC_SETTLE_DELAY_MS,
 };
 
+interface DiagnosticProviderCapabilities {
+  identifier?: string;
+  interFileDependencies?: boolean;
+  workspaceDiagnostics?: boolean;
+}
+
+export function getDiagnosticsCapabilitySummary({
+  diagnosticProvider,
+  publishDiagnosticsObserved = false,
+  workspaceConfigurationRequested = false,
+}: {
+  diagnosticProvider?: DiagnosticProviderCapabilities | null;
+  publishDiagnosticsObserved?: boolean;
+  workspaceConfigurationRequested?: boolean;
+}): {
+  availableModes: string[];
+  preferredMode: 'push' | 'pull';
+  inferredTransport: 'push' | 'pull' | 'hybrid';
+  pull: boolean;
+  pushObserved: boolean;
+  pullResultTracking: boolean;
+  workspaceDiagnostics: boolean;
+  interFileDependencies: boolean;
+  workspaceConfiguration: boolean;
+} {
+  const pull = Boolean(diagnosticProvider);
+  const workspaceDiagnostics = Boolean(
+    diagnosticProvider?.workspaceDiagnostics,
+  );
+  const interFileDependencies = Boolean(
+    diagnosticProvider?.interFileDependencies,
+  );
+
+  const availableModes = [
+    ...(pull ? ['pull', 'pull/full', 'pull/unchanged'] : ['push']),
+    ...(workspaceDiagnostics ? ['workspace-pull'] : []),
+    ...(publishDiagnosticsObserved ? ['push'] : []),
+  ];
+
+  return {
+    availableModes: Array.from(new Set(availableModes)),
+    preferredMode: pull ? 'pull' : 'push',
+    inferredTransport:
+      pull && publishDiagnosticsObserved ? 'hybrid' : pull ? 'pull' : 'push',
+    pull,
+    pushObserved: publishDiagnosticsObserved,
+    pullResultTracking: pull,
+    workspaceDiagnostics,
+    interFileDependencies,
+    workspaceConfiguration: workspaceConfigurationRequested,
+  };
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   ms: number,
@@ -277,7 +330,10 @@ export class LSPClient {
     string,
     { version: number; text: string; languageId: string }
   >();
+  private diagnosticProvider: DiagnosticProviderCapabilities | null = null;
+  private publishDiagnosticsObserved = false;
   private supportsPullDiagnostics = false;
+  private workspaceConfigurationRequested = false;
 
   constructor(
     private root: string,
@@ -362,6 +418,18 @@ export class LSPClient {
     this.connection.onNotification(
       'textDocument/publishDiagnostics',
       (params: { uri?: string; diagnostics?: Diagnostic[] }) => {
+        if (!this.publishDiagnosticsObserved) {
+          this.publishDiagnosticsObserved = true;
+          log('[lsp] diagnostics capabilities: publishDiagnostics observed', {
+            server: this.server.id,
+            ...getDiagnosticsCapabilitySummary({
+              diagnosticProvider: this.diagnosticProvider,
+              publishDiagnosticsObserved: this.publishDiagnosticsObserved,
+              workspaceConfigurationRequested:
+                this.workspaceConfigurationRequested,
+            }),
+          });
+        }
         if (params.uri) {
           this.diagnosticsStore.set(params.uri, params.diagnostics ?? []);
         }
@@ -371,6 +439,26 @@ export class LSPClient {
     this.connection.onRequest(
       'workspace/configuration',
       (params: { items?: unknown[] }) => {
+        if (!this.workspaceConfigurationRequested) {
+          this.workspaceConfigurationRequested = true;
+          log(
+            '[lsp] diagnostics capabilities: workspace configuration requested',
+            {
+              server: this.server.id,
+              sections: (params.items ?? []).map((item) =>
+                item && typeof item === 'object' && 'section' in item
+                  ? ((item as { section?: string }).section ?? null)
+                  : null,
+              ),
+              ...getDiagnosticsCapabilitySummary({
+                diagnosticProvider: this.diagnosticProvider,
+                publishDiagnosticsObserved: this.publishDiagnosticsObserved,
+                workspaceConfigurationRequested:
+                  this.workspaceConfigurationRequested,
+              }),
+            },
+          );
+        }
         return getWorkspaceConfiguration(
           (params.items ?? []) as Array<{ section?: string } | undefined>,
         );
@@ -467,14 +555,30 @@ export class LSPClient {
       `LSP initialize (${this.server.id})`,
     );
 
-    this.supportsPullDiagnostics = Boolean(
+    const capabilities =
       result &&
-        typeof result === 'object' &&
-        'capabilities' in result &&
-        result.capabilities &&
-        typeof result.capabilities === 'object' &&
-        'diagnosticProvider' in result.capabilities,
-    );
+      typeof result === 'object' &&
+      'capabilities' in result &&
+      result.capabilities &&
+      typeof result.capabilities === 'object'
+        ? result.capabilities
+        : undefined;
+
+    this.diagnosticProvider =
+      capabilities && 'diagnosticProvider' in capabilities
+        ? (capabilities.diagnosticProvider as DiagnosticProviderCapabilities)
+        : null;
+    this.supportsPullDiagnostics = Boolean(this.diagnosticProvider);
+
+    log('[lsp] diagnostics capabilities negotiated', {
+      server: this.server.id,
+      diagnosticProvider: this.diagnosticProvider,
+      ...getDiagnosticsCapabilitySummary({
+        diagnosticProvider: this.diagnosticProvider,
+        publishDiagnosticsObserved: this.publishDiagnosticsObserved,
+        workspaceConfigurationRequested: this.workspaceConfigurationRequested,
+      }),
+    });
 
     this.connection.sendNotification('initialized', {});
     await new Promise((r) => setTimeout(r, LSP_TIMEOUTS.initializeDelay));
@@ -602,6 +706,17 @@ export class LSPClient {
     await this.openFile(absPath);
     await new Promise((r) => setTimeout(r, LSP_TIMEOUTS.diagnosticSettleDelay));
 
+    log('[lsp] diagnostics mode selected', {
+      server: this.server.id,
+      filePath: absPath,
+      activeMode: this.supportsPullDiagnostics ? 'pull' : 'push',
+      ...getDiagnosticsCapabilitySummary({
+        diagnosticProvider: this.diagnosticProvider,
+        publishDiagnosticsObserved: this.publishDiagnosticsObserved,
+        workspaceConfigurationRequested: this.workspaceConfigurationRequested,
+      }),
+    });
+
     if (this.supportsPullDiagnostics) {
       try {
         const result = this.connection
@@ -700,7 +815,10 @@ export class LSPClient {
     this.proc = null;
     this.connection = null;
     this.processExited = true;
+    this.diagnosticProvider = null;
+    this.publishDiagnosticsObserved = false;
     this.supportsPullDiagnostics = false;
+    this.workspaceConfigurationRequested = false;
     this.diagnosticsStore.clear();
     this.diagnosticResultIds.clear();
     this.documents.clear();
