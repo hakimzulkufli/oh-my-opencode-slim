@@ -72,7 +72,7 @@ export interface DocumentDiagnosticReportFull {
 
 export interface DocumentDiagnosticReportUnchanged {
   kind: 'unchanged';
-  resultId?: string;
+  resultId: string;
 }
 
 export type DocumentDiagnosticReport =
