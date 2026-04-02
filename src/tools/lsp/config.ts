@@ -155,8 +155,9 @@ function findInstalledServer(
       return { status: 'found', server };
     }
 
+    log(`[LSP] Server ${config.id} not found in PATH or local node_modules`);
+
     if (!firstNotInstalled) {
-      log(`[LSP] Server ${config.id} not found in PATH or local node_modules`);
       firstNotInstalled = {
         status: 'not_installed',
         server,
@@ -240,7 +241,7 @@ export function resolveServerCommand(
   if (existsSync(localBin)) {
     return [localBin, ...args];
   }
-  if (existsSync(localBin + ext)) {
+  if (isWindows && existsSync(localBin + ext)) {
     return [localBin + ext, ...args];
   }
 
