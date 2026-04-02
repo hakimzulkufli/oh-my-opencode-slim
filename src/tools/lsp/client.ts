@@ -19,14 +19,12 @@ import type {
   ResolvedServer,
 } from './types';
 
-const START_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 const OPEN_FILE_DELAY_MS = 250;
 const INITIALIZE_DELAY_MS = 100;
 const DIAGNOSTIC_SETTLE_DELAY_MS = 250;
 
 export const LSP_TIMEOUTS = {
-  start: START_TIMEOUT_MS,
   request: REQUEST_TIMEOUT_MS,
   openFileDelay: OPEN_FILE_DELAY_MS,
   initializeDelay: INITIALIZE_DELAY_MS,
