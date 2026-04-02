@@ -121,7 +121,7 @@ async function runBackgroundUpdateCheck(
     showToast(
       ctx,
       `OMO-Slim ${latestVersion}`,
-      `v${latestVersion} available. Restart to apply.`,
+      `v${latestVersion} available. Auto-update is disabled.`,
       'info',
       8000,
     );
