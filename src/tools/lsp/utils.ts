@@ -118,8 +118,7 @@ export async function withLspClient<T>(
 
   const server = result.server;
   // Use server-specific root detection instead of generic workspace root
-  // Fall back to file's directory if no root patterns match
-  const root = findServerProjectRoot(absPath, server) ?? dirname(absPath);
+  const root = findServerProjectRoot(absPath, server);
 
   log('[lsp] withLspClient: selected server', {
     filePath: absPath,
